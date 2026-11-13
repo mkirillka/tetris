@@ -1,0 +1,344 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Тетрис — автотесты</title>
+<link rel="stylesheet" href="../assets/styles.css">
+<style>
+  #TESTOUT{
+    position:fixed;inset:0;z-index:99;margin:0;padding:20px;overflow:auto;
+    background:#07070c;color:#d7d7e6;font:12px/1.6 ui-monospace,Menlo,monospace;white-space:pre-wrap;
+  }
+  #TESTOUT .ok{color:#4ade80}
+  #TESTOUT .fail{color:#f87171}
+</style>
+</head>
+<body>
+<script src="../assets/game.js"></script>
+<script>
+/*
+ * Автотесты тетриса. Запускаются в браузере и работают с настоящей разметкой
+ * из index.html: время и кадры подменяются, ввод — реальные события клавиатуры.
+ *
+ *   python3 -m http.server 8000
+ *   open http://localhost:8000/tools/test.html
+ *
+ * В headless Chrome (requestAnimationFrame не тикает) результат печатается
+ * в <pre id="TESTOUT">, поэтому подходит и для прогона из командной строки.
+ */
+(async () => {
+  'use strict';
+
+  const out = [];
+  let failures = 0;
+  const log = (text, cls = '') => out.push({ text, cls });
+  const check = (name, ok, extra = '') => {
+    if (!ok) failures++;
+    log(`${ok ? 'ok  ' : 'FAIL'} ${name}${extra ? ' — ' + extra : ''}`, ok ? 'ok' : 'fail');
+  };
+
+  const errors = [];
+  window.addEventListener('error', (e) => errors.push(String(e.message)));
+  window.addEventListener('unhandledrejection', (e) => errors.push(String(e.reason)));
+
+  /* ── Разметка: берём настоящую из index.html ─────────────────────── */
+  const html = await (await fetch('../index.html')).text();
+  const parsed = new DOMParser().parseFromString(html, 'text/html');
+  parsed.body.querySelectorAll('script').forEach((el) => el.remove());
+  document.body.innerHTML = parsed.body.innerHTML;
+
+  const $ = (id) => document.getElementById(id);
+  const num = (id) => Number(String($(id).textContent).replace(/\D/g, ''));
+  const hud = () => ({ score: num('score'), lines: num('lines'), level: num('level') });
+  const running = () => $('overlay').classList.contains('hide');
+  const overlayTitle = () => $('ovTitle').textContent;
+
+  /* ── Управляемые время и кадры ───────────────────────────────────── */
+  const baselineGlobals = new Set(Object.keys(window));
+
+  let virtualNow = 1000;
+  let pendingFrame = null;
+  const clock = { now: () => virtualNow };
+  const scheduleFrame = (cb) => { pendingFrame = cb; };
+  const tick = (dt = 16.7) => {
+    virtualNow += dt;
+    const cb = pendingFrame;
+    pendingFrame = null;
+    if (cb) cb(virtualNow);
+  };
+  const ticks = (n, dt = 16.7) => { for (let i = 0; i < n; i++) tick(dt); };
+
+  // Детерминированный генератор, чтобы партии повторялись
+  const seededRandom = (seed) => () => {
+    seed = (seed + 0x6d2b79f5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+
+  const game = Tetris.createTetris(document.body, {
+    clock,
+    scheduleFrame,
+    random: seededRandom(20261113),
+  });
+  const state = () => game.getState();
+  const leakedGlobals = Object.keys(window).filter((key) => !baselineGlobals.has(key));
+
+  /* ── Ввод: настоящие события клавиатуры ──────────────────────────── */
+  const key = (code, type = 'keydown') => window.dispatchEvent(new KeyboardEvent(type, {
+    code, key: code, bubbles: true, cancelable: true,
+  }));
+  const tap = (code) => { key(code); key(code, 'keyup'); };
+
+  /* ── Модель фигур для оценки позиции (оракул теста) ──────────────── */
+  const SHAPES = {
+    I: [[0, 0, 0, 0], [1, 1, 1, 1], [0, 0, 0, 0], [0, 0, 0, 0]],
+    J: [[1, 0, 0], [1, 1, 1], [0, 0, 0]],
+    L: [[0, 0, 1], [1, 1, 1], [0, 0, 0]],
+    O: [[1, 1], [1, 1]],
+    S: [[0, 1, 1], [1, 1, 0], [0, 0, 0]],
+    T: [[0, 1, 0], [1, 1, 1], [0, 0, 0]],
+    Z: [[1, 1, 0], [0, 1, 1], [0, 0, 0]],
+  };
+  const rotateCW = (m) => m.map((_, y) => m.map((row) => row[y]).reverse());
+  const ROTATIONS = Object.fromEntries(Object.entries(SHAPES).map(([type, base]) => {
+    const list = [base];
+    for (let i = 1; i < 4; i++) list.push(type === 'O' ? base : rotateCW(list[i - 1]));
+    return [type, list];
+  }));
+
+  const COLS = 10;
+  const ROWS = 20;
+
+  const collides = (board, matrix, px, py) => {
+    for (let r = 0; r < matrix.length; r++) {
+      for (let c = 0; c < matrix[r].length; c++) {
+        if (!matrix[r][c]) continue;
+        const x = px + c;
+        const y = py + r;
+        if (x < 0 || x >= COLS || y >= ROWS) return true;
+        if (y >= 0 && board[y][x]) return true;
+      }
+    }
+    return false;
+  };
+
+  const evaluate = (board) => {
+    const kept = board.filter((row) => !row.every(Boolean));
+    const cleared = ROWS - kept.length;
+    const height = kept.length;
+    let holes = 0;
+    let aggregate = 0;
+    let bumpiness = 0;
+    const tops = [];
+    for (let x = 0; x < COLS; x++) {
+      let top = height;
+      for (let y = 0; y < height; y++) if (kept[y][x]) { top = y; break; }
+      tops.push(height - top);
+      aggregate += height - top;
+      for (let y = top + 1; y < height; y++) if (!kept[y][x]) holes++;
+    }
+    for (let x = 0; x < COLS - 1; x++) bumpiness += Math.abs(tops[x] - tops[x + 1]);
+    return cleared * 400 - holes * 120 - aggregate * 8 - bumpiness * 10 - Math.max(0, ...tops) * 4;
+  };
+
+  const planBest = (board, type) => {
+    let best = null;
+    for (let rotation = 0; rotation < 4; rotation++) {
+      if (type === 'O' && rotation > 0) continue;
+      const matrix = ROTATIONS[type][rotation];
+      for (let x = -3; x < COLS; x++) {
+        let y = -2;
+        if (collides(board, matrix, x, y)) continue;
+        while (!collides(board, matrix, x, y + 1)) y++;
+        const simulated = board.map((row) => row.slice());
+        let valid = true;
+        for (let r = 0; r < matrix.length && valid; r++) {
+          for (let c = 0; c < matrix[r].length; c++) {
+            if (!matrix[r][c]) continue;
+            const px = x + c;
+            const py = y + r;
+            if (px < 0 || px >= COLS || py < 0 || py >= ROWS) { valid = false; break; }
+            simulated[py][px] = type;
+          }
+        }
+        if (!valid) continue;
+        const score = evaluate(simulated);
+        if (!best || score > best.score) best = { score, rotation, x };
+      }
+    }
+    return best;
+  };
+
+  const brightPixels = (canvas) => {
+    const data = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data;
+    let count = 0;
+    for (let i = 0; i < data.length; i += 4) if (data[i] + data[i + 1] + data[i + 2] > 150) count++;
+    return count;
+  };
+
+  try {
+    /* ── 1. Стартовое состояние ────────────────────────────────────── */
+    ticks(3);
+    check('оверлей приглашает начать', overlayTitle() === 'TETRIS', overlayTitle());
+    check('стартовое состояние ready', state().phase === 'ready', state().phase);
+    check('HUD обнулён', hud().score === 0 && hud().lines === 0 && hud().level === 1, JSON.stringify(hud()));
+    check('наружу отдан только Tetris', typeof Tetris.createTetris === 'function');
+    check('игра не добавляет глобальных переменных', leakedGlobals.length === 0, leakedGlobals.join(', '));
+
+    /* ── 2. Запуск и отрисовка ─────────────────────────────────────── */
+    key('Space');
+    ticks(3);
+    check('Space запускает партию', running() && state().phase === 'playing', state().phase);
+    check('фигура появилась на поле', !!state().piece, state().piece?.type);
+    check('очередь NEXT заполнена', state().next.length >= 3, `next=${state().next.length}`);
+    check('поле отрисовано', brightPixels($('board')) > 500, `пикселей=${brightPixels($('board'))}`);
+    check('панель NEXT отрисована', brightPixels($('next')) > 300, `пикселей=${brightPixels($('next'))}`);
+
+    /* ── 3. Движение и поворот ─────────────────────────────────────── */
+    const startX = state().piece.x;
+    tap('ArrowLeft');
+    ticks(2);
+    check('влево двигает фигуру', state().piece.x === startX - 1, `x ${startX}→${state().piece.x}`);
+    tap('ArrowRight'); tap('ArrowRight');
+    ticks(2);
+    check('вправо двигает фигуру', state().piece.x === startX + 1, `x=${state().piece.x}`);
+
+    if (state().piece.type !== 'O') {
+      const baseRotation = state().piece.rotation;
+      tap('ArrowUp');
+      ticks(2);
+      check('поворот по часовой', state().piece.rotation === (baseRotation + 1) % 4, `r=${state().piece.rotation}`);
+      tap('KeyZ');
+      ticks(2);
+      check('поворот против часовой', state().piece.rotation === baseRotation, `r=${state().piece.rotation}`);
+    } else {
+      check('поворот по часовой (O не вращается)', true);
+      check('поворот против часовой (O не вращается)', true);
+    }
+
+    const blocksBefore = state().board.flat().filter(Boolean).length;
+    tap('Space');
+    ticks(3);
+    const blocksAfter = state().board.flat().filter(Boolean).length;
+    check('хард-дроп фиксирует блоки', blocksAfter > blocksBefore, `блоков ${blocksBefore}→${blocksAfter}`);
+    check('хард-дроп начисляет очки', state().score > 0, `score=${state().score}`);
+
+    /* ── 4. Мягкий сброс обновляет HUD ─────────────────────────────── */
+    key('ArrowDown');
+    ticks(30);
+    key('ArrowDown', 'keyup');
+    check('мягкий сброс начисляет очки', state().score > 0, `score=${state().score}`);
+    check('HUD совпадает со счётом', hud().score === state().score, `HUD=${hud().score} модель=${state().score}`);
+
+    /* ── 5. Пауза ──────────────────────────────────────────────────── */
+    tap('KeyP');
+    ticks(2);
+    check('P ставит паузу', state().phase === 'paused' && !running(), state().phase);
+    const frozenY = state().piece?.y;
+    ticks(40);
+    check('на паузе фигура не падает', state().piece?.y === frozenY, `y ${frozenY}→${state().piece?.y}`);
+    tap('KeyP');
+    ticks(2);
+    check('P снимает паузу', state().phase === 'playing' && running(), state().phase);
+
+    /* ── 6. Hold ───────────────────────────────────────────────────── */
+    const beforeHold = state().piece.type;
+    tap('KeyC');
+    ticks(3);
+    check('hold запоминает фигуру', state().hold === beforeHold, `hold=${state().hold}`);
+    const afterHold = state().piece.type;
+    tap('KeyC');
+    ticks(3);
+    check('повторный hold в сбросе игнорируется', state().piece.type === afterHold, `фигура=${state().piece.type}`);
+    check('панель HOLD отрисована', brightPixels($('hold')) > 100, `пикселей=${brightPixels($('hold'))}`);
+
+    /* ── 7. Бот играет партию по-настоящему ────────────────────────── */
+    game.start();
+    ticks(3);
+
+    let placed = 0;
+    let maxLines = 0;
+    let maxLevel = 1;
+    for (let i = 0; i < 120 && state().phase !== 'over'; i++) {
+      for (let guard = 0; guard < 200 && state().phase === 'clearing'; guard++) tick();
+      const current = state();
+      if (current.phase !== 'playing' || !current.piece) continue;
+
+      const plan = planBest(current.board, current.piece.type);
+      if (!plan) { tap('Space'); ticks(10); continue; }
+
+      for (let guard = 0; guard < 6 && state().piece?.rotation !== plan.rotation; guard++) {
+        tap('ArrowUp');
+        ticks(1);
+      }
+      for (let guard = 0; guard < 14; guard++) {
+        const x = state().piece?.x;
+        if (x === undefined || x === plan.x) break;
+        tap(x < plan.x ? 'ArrowRight' : 'ArrowLeft');
+        ticks(1);
+      }
+      tap('Space');
+      ticks(12);
+      placed++;
+      maxLines = Math.max(maxLines, state().lines);
+      maxLevel = Math.max(maxLevel, state().level);
+    }
+
+    check('бот расставил фигуры', placed >= 60, `фигур=${placed}`);
+    check('линии очищаются в реальной партии', maxLines >= 10, `линий=${maxLines}`);
+    check('уровень растёт', maxLevel >= 2, `уровень=${maxLevel}`);
+    check('счёт накапливается', state().score > 1000, `очки=${state().score}`);
+    check('HUD и модель не расходятся',
+      hud().lines === state().lines && hud().level === state().level && hud().score === state().score,
+      `HUD=${JSON.stringify(hud())} модель lines=${state().lines} level=${state().level}`);
+    check('рекорд сохранён', Number(localStorage.getItem('tetris.best') || 0) > 0,
+      `best=${localStorage.getItem('tetris.best')}`);
+
+    /* ── 8. Переполнение поля → Game Over ──────────────────────────── */
+    if (state().phase !== 'over') {
+      for (let i = 0; i < 200 && state().phase !== 'over'; i++) {
+        for (let guard = 0; guard < 60 && state().phase === 'clearing'; guard++) tick();
+        for (let move = 0; move < 9; move++) { tap('ArrowLeft'); ticks(1); }
+        tap('Space');
+        ticks(8);
+      }
+    }
+    check('переполнение поля даёт Game Over', state().phase === 'over' && overlayTitle() === 'ИГРА ОКОНЧЕНА',
+      `фаза=${state().phase}, экран=${overlayTitle()}`);
+
+    key('Space');
+    ticks(4);
+    check('Space после Game Over начинает новую партию',
+      state().phase === 'playing' && hud().score === 0, `фаза=${state().phase}, HUD=${JSON.stringify(hud())}`);
+
+    /* ── 9. Раскладка ──────────────────────────────────────────────── */
+    const rect = $('board').getBoundingClientRect();
+    check('поле не вылезает за окно',
+      rect.bottom <= window.innerHeight + 2 && rect.right <= window.innerWidth + 2 && rect.width > 100,
+      `${Math.round(rect.width)}×${Math.round(rect.height)} при окне ${window.innerWidth}×${window.innerHeight}`);
+
+    /* ── 10. destroy снимает обработчики ───────────────────────────── */
+    game.destroy();
+    const phaseBefore = state().phase;
+    tap('KeyP');
+    ticks(3);
+    check('после destroy ввод не меняет состояние', state().phase === phaseBefore, `${phaseBefore}→${state().phase}`);
+
+    check('ошибок JS не было', errors.length === 0, errors.join(' | '));
+  } catch (error) {
+    failures++;
+    log('ИСКЛЮЧЕНИЕ: ' + (error && error.stack || error), 'fail');
+  }
+
+  const pre = document.createElement('pre');
+  pre.id = 'TESTOUT';
+  const summary = failures === 0 ? 'ИТОГ: ВСЕ ПРОВЕРКИ ПРОЙДЕНЫ' : `ИТОГ: ПРОВАЛОВ ${failures}`;
+  pre.innerHTML = out
+    .map((line) => `<span class="${line.cls}">${line.text.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]))}</span>`)
+    .join('\n') + `\n\n${summary}`;
+  document.body.appendChild(pre);
+})();
+</script>
+</body>
+</html>

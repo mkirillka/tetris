@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#07070c">
+<meta name="description" content="Тетрис в браузере: Super Rotation System, hold, призрак фигуры, T-spin, комбо. Без зависимостей и сборки.">
+<title>Тетрис</title>
+<link rel="icon" type="image/png" href="assets/favicon.png">
+<link rel="apple-touch-icon" href="assets/icon-180.png">
+<link rel="stylesheet" href="assets/styles.css">
+</head>
+<body>
+
+<div class="app">
+  <aside class="panel">
+    <div class="box">
+      <h2>HOLD</h2>
+      <canvas id="hold"></canvas>
+    </div>
+    <div class="box">
+      <div class="stat"><span>SCORE</span><b id="score">0</b></div>
+      <div class="stat"><span>LINES</span><b id="lines">0</b></div>
+      <div class="stat"><span>LEVEL</span><b id="level" class="acc">1</b></div>
+      <div class="stat"><span>BEST</span><b id="best" class="hi">0</b></div>
+    </div>
+  </aside>
+
+  <main class="stage">
+    <canvas id="board"></canvas>
+    <div class="badge">TETRIS / SRS</div>
+    <div class="combo" id="combo"></div>
+    <div class="overlay" id="overlay">
+      <div class="title" id="ovTitle">TETRIS</div>
+      <div class="sub" id="ovSub">
+        <kbd>←</kbd><kbd>→</kbd> движение · <kbd>↓</kbd> мягкий сброс<br>
+        <kbd>↑</kbd>/<kbd>X</kbd> поворот · <kbd>Z</kbd> обратный<br>
+        <kbd>Space</kbd> хард-дроп · <kbd>C</kbd> hold<br>
+        <kbd>P</kbd> пауза · <kbd>R</kbd> заново · <kbd>M</kbd> звук
+      </div>
+      <button class="btn" id="ovBtn">НАЧАТЬ</button>
+    </div>
+  </main>
+
+  <aside class="panel">
+    <div class="box">
+      <h2>NEXT</h2>
+      <canvas id="next"></canvas>
+    </div>
+    <div class="box keys">
+      <div><span>← →</span>движение</div>
+      <div><span>↓</span>мягкий сброс</div>
+      <div><span>Space</span>хард-дроп</div>
+      <div><span>↑ / X</span>поворот CW</div>
+      <div><span>Z</span>поворот CCW</div>
+      <div><span>A</span>поворот 180</div>
+      <div><span>C / Shift</span>hold</div>
+      <div><span>P / Esc</span>пауза</div>
+      <div><span>R</span>заново</div>
+      <div><span>M</span>звук</div>
+    </div>
+  </aside>
+</div>
+
+<div class="touch" id="touch">
+  <button data-act="left">◀</button>
+  <button data-act="ccw">⟲</button>
+  <button data-act="cw">⟳</button>
+  <button data-act="hold">H</button>
+  <button data-act="pause">II</button>
+  <button data-act="soft">▼</button>
+  <button data-act="hard" class="wide">DROP</button>
+  <button data-act="right">▶</button>
+</div>
+
+<script src="assets/game.js"></script>
+<script>
+  Tetris.createTetris(document.body);
+</script>
+</body>
+</html>
