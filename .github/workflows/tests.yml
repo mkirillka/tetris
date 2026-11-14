@@ -1,0 +1,36 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  browser-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Chrome is preinstalled on ubuntu-latest; the runner only needs it plus python3.
+      - name: Run tools/test.html headless
+        run: |
+          export CHROME="$(command -v google-chrome || command -v google-chrome-stable)"
+          ./tools/run-tests.sh
+
+      - name: Static sanity of the shipped files
+        run: |
+          python3 - <<'PY'
+          import pathlib, sys
+          bad = []
+          for path in ("index.html", "assets/game.js", "assets/styles.css"):
+              text = pathlib.Path(path).read_text(encoding="utf-8")
+              if "http://" in text.replace("http://www.w3.org", ""):
+                  bad.append(f"{path}: external http:// reference")
+          if bad:
+              print("\n".join(bad)); sys.exit(1)
+          print("no external references")
+          PY

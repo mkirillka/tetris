@@ -1,7 +1,10 @@
 # Тетрис
 
+[![tests](https://github.com/mkirillka/tetris/actions/workflows/tests.yml/badge.svg)](https://github.com/mkirillka/tetris/actions/workflows/tests.yml)
+
 Тетрис в браузере: один экран, без зависимостей, сборки и интернета.
 Открывается двойным кликом по `index.html` — и работает, в том числе офлайн.
+Интерфейс на русском.
 
 **Играть:** [mkirillka.github.io/tetris](https://mkirillka.github.io/tetris/)
 
@@ -58,6 +61,10 @@ python3 -m http.server 8000
 
 ## Приложение в Dock (macOS)
 
+Скрипты ниже работают **только на macOS**: `install-dock.sh` использует `plutil`, `osascript`,
+`defaults` и `killall Dock`, `build-icons.sh` — `sips` и `iconutil`. Сама игра от платформы
+не зависит: на Linux и Windows достаточно открыть `index.html`.
+
 `tools/install-dock.sh` собирает `~/Applications/Тетрис.app` со своей иконкой
 и кладёт его в Dock. Приложение открывает игру отдельным окном Chrome,
 без адресной строки и вкладок.
@@ -81,6 +88,18 @@ python3 -m http.server 8000
 и кадры, нажимают реальные клавиши и проверяют состояние игры. В конце партию
 играет бот, который оценивает позиции.
 
+Из командной строки (нужен Chrome, зависимостей нет):
+
+```sh
+./tools/run-tests.sh
+```
+
+Скрипт поднимает статический сервер, прогоняет `tools/test.html` в headless Chrome
+и возвращает ненулевой код, если хоть одна проверка упала. То же самое делает CI
+на каждый push и pull request.
+
+Вручную, с отчётом на экране:
+
 ```sh
 python3 -m http.server 8000
 open http://localhost:8000/tools/test.html
@@ -98,6 +117,7 @@ assets/game.js           вся логика и отрисовка
 assets/icon.svg          иконка (вектор)
 assets/*.png             иконки для браузера и Dock
 tools/test.html          автотесты
+tools/run-tests.sh       прогон автотестов в headless Chrome (для CI и терминала)
 tools/build-icons.sh     сборка иконок из SVG
 tools/install-dock.sh    приложение для Dock
 ```
