@@ -111,7 +111,10 @@
     const levelEl = $('level');
     const bestEl = $('best');
     const comboEl = $('combo');
-    const touchEl = $('touch');
+    const ovInstallEl = $('ovInstall');
+    const ovHintEl = $('ovHint');
+    const stageEl = boardEl.parentElement;
+    const appEl = root.querySelector('.app');
 
     const ctx = boardEl.getContext('2d');
     const nextCtx = nextEl.getContext('2d');
@@ -121,19 +124,27 @@
     const BOARD_H = ROWS * CELL;
     const NEXT_W = 112;
     const NEXT_H = NEXT_COUNT * 62 + 12;
+    // На телефоне панель NEXT показывает две фигуры: верхняя полоса ниже,
+    // полю достаётся больше высоты.
+    let nextSlots = NEXT_COUNT;
+    let nextHeight = NEXT_H;
     const HOLD_W = 112;
     const HOLD_H = 74;
 
-    function setupCanvas(canvas, context, width, height) {
+    // canvas поля масштабируется из JS (fitBoard), панели HOLD/NEXT — силами CSS,
+    // поэтому им инлайновый размер не ставим: иначе они не ужмутся на телефоне.
+    function setupCanvas(canvas, context, width, height, fixedCssSize = false) {
       const dpr = win.devicePixelRatio || 1;
       canvas.width = width * dpr;
       canvas.height = height * dpr;
-      canvas.style.width = width + 'px';
-      canvas.style.height = height + 'px';
+      if (fixedCssSize) {
+        canvas.style.width = width + 'px';
+        canvas.style.height = height + 'px';
+      }
       context.setTransform(dpr, 0, 0, dpr, 0, 0);
     }
 
-    setupCanvas(boardEl, ctx, BOARD_W, BOARD_H);
+    setupCanvas(boardEl, ctx, BOARD_W, BOARD_H, true);
     setupCanvas(nextEl, nextCtx, NEXT_W, NEXT_H);
     setupCanvas(holdEl, holdCtx, HOLD_W, HOLD_H);
 
@@ -211,6 +222,7 @@
     const pressed = { left: false, right: false, down: false };
     let shakeUntil = 0;
     let comboTimer = 0;
+    const fitTimers = [];
     let alive = true;
     let lastFrame = clock.now();
 
@@ -674,8 +686,8 @@
     }
 
     function drawSidePanels() {
-      nextCtx.clearRect(0, 0, NEXT_W, NEXT_H);
-      for (let i = 0; i < NEXT_COUNT; i++) {
+      nextCtx.clearRect(0, 0, NEXT_W, nextHeight);
+      for (let i = 0; i < nextSlots; i++) {
         const type = queue[i];
         if (!type) continue;
         nextCtx.globalAlpha = i === 0 ? 1 : 0.6 - i * 0.12;
@@ -727,7 +739,7 @@
     function togglePause() {
       if (phase === 'playing') {
         phase = 'paused';
-        setOverlay('ПАУЗА', 'Продолжить — <kbd>P</kbd> или кнопка ниже', 'ПРОДОЛЖИТЬ');
+        setOverlay('ПАУЗА', isCompactLayout() ? 'Кнопка ниже продолжит партию' : 'Продолжить — <kbd>P</kbd> или кнопка ниже', 'ПРОДОЛЖИТЬ');
       } else if (phase === 'paused') {
         hideOverlay();
         phase = 'playing';
@@ -747,8 +759,7 @@
         'ИГРА ОКОНЧЕНА',
         `Очки: <b style="color:#e8e8f2">${score.toLocaleString('ru-RU')}</b><br>` +
         `Линии: <b style="color:#e8e8f2">${lines}</b> · Уровень: <b style="color:#e8e8f2">${level}</b><br>` +
-        `Рекорд: <b style="color:#facc15">${best.toLocaleString('ru-RU')}</b><br><br>` +
-        `<kbd>R</kbd> — сыграть ещё`,
+        `Рекорд: <b style="color:#facc15">${best.toLocaleString('ru-RU')}</b>`,
         'ЗАНОВО',
       );
     }
@@ -849,15 +860,27 @@
       }
     });
 
-    listen(touchEl, 'pointerdown', (event) => {
-      const button = event.target.closest('button');
+    listen(root, 'pointerdown', (event) => {
+      const button = event.target.closest?.('button[data-act]');
       if (!button) return;
       event.preventDefault();
+      // палец может уехать с кнопки — тогда отпускание придёт всё равно.
+      // На синтетическом событии захват бросит исключение — это не ошибка.
+      try {
+        button.setPointerCapture?.(event.pointerId);
+      } catch {
+        /* указателя с таким id нет */
+      }
+      button.classList.add('is-pressed');
       const action = button.dataset.act;
 
       if (action === 'pause') {
         if (phase === 'ready' || phase === 'over') start();
         else togglePause();
+        return;
+      }
+      if (action === 'restart') {
+        start();
         return;
       }
       if (phase !== 'playing') {
@@ -877,16 +900,17 @@
     });
 
     const stopTouch = (event) => {
-      const button = event.target.closest?.('button');
+      const button = event.target.closest?.('button[data-act]');
+      button?.classList.remove('is-pressed');
       switch (button?.dataset.act) {
         case 'left': releaseDir(-1); break;
         case 'right': releaseDir(1); break;
         case 'soft': pressed.down = false; break;
       }
     };
-    listen(touchEl, 'pointerup', stopTouch);
-    listen(touchEl, 'pointercancel', stopTouch);
-    listen(touchEl, 'pointerleave', stopTouch);
+    listen(root, 'pointerup', stopTouch);
+    listen(root, 'pointercancel', stopTouch);
+    listen(root, 'lostpointercapture', stopTouch);
 
     // Свайпы по полю: горизонталь — сдвиг, вниз — мягкий сброс,
     // тап — поворот, свайп вниз — хард-дроп, вверх — hold.
@@ -951,22 +975,97 @@
     });
 
     /* ────────────────────────── Подгонка под экран ────────────────────────── */
+    // Раскладка переключается в CSS, JS спрашивает у него тот же media-запрос.
+    const COMPACT_QUERY = '(hover:none) and (pointer:coarse), (max-width:560px)';
+
+    function isCompactLayout() {
+      return win.matchMedia(COMPACT_QUERY).matches;
+    }
+
+    // Свободное место под поле: на телефоне берём область сетки как есть
+    // (в компактной раскладке она растянута и не зависит от размера поля),
+    // на десктопе считаем от размеров окна и панелей.
+    function availableSpace() {
+      const appStyle = win.getComputedStyle(appEl);
+      const padX = parseFloat(appStyle.paddingLeft) + parseFloat(appStyle.paddingRight);
+      const padY = parseFloat(appStyle.paddingTop) + parseFloat(appStyle.paddingBottom);
+
+      if (isCompactLayout()) {
+        const rect = stageEl.getBoundingClientRect();
+        return { width: rect.width, height: rect.height };
+      }
+
+      const gap = parseFloat(appStyle.columnGap) || 0;
+      const panels = holdEl.closest('.box').offsetWidth + nextEl.closest('.box').offsetWidth;
+      const bodyStyle = win.getComputedStyle(doc.body);
+      const bodyPadY = parseFloat(bodyStyle.paddingTop) + parseFloat(bodyStyle.paddingBottom);
+      return {
+        width: win.innerWidth - padX - panels - gap * 2,
+        height: win.innerHeight - bodyPadY - padY + (parseFloat(appStyle.rowGap) || 0),
+      };
+    }
+
+    // Пересобирает панель NEXT под текущую раскладку (3 фигуры на десктопе, 2 на телефоне)
+    function layoutSidePanels() {
+      const slots = isCompactLayout() ? 2 : NEXT_COUNT;
+      if (slots === nextSlots) return;
+      nextSlots = slots;
+      nextHeight = slots * 62 + 12;
+      setupCanvas(nextEl, nextCtx, NEXT_W, nextHeight);
+      drawSidePanels();
+    }
+
+    // Буфер canvas подгоняется под фактический размер: логические координаты
+    // остаются 300×600, а масштаб учитывает и размер на экране, и DPR.
+    // Иначе либо мыло при увеличении, либо лишние пиксели при уменьшении.
+    let boardBufferWidth = BOARD_W;
+    let boardBufferHeight = BOARD_H;
+
+    function resizeBoardBuffer(cssWidth, cssHeight) {
+      if (cssWidth === boardBufferWidth && cssHeight === boardBufferHeight) return;
+      boardBufferWidth = cssWidth;
+      boardBufferHeight = cssHeight;
+      const dpr = win.devicePixelRatio || 1;
+      boardEl.width = Math.round(cssWidth * dpr);
+      boardEl.height = Math.round(cssHeight * dpr);
+      const ratio = (cssWidth / BOARD_W) * dpr;
+      ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+    }
+
     function fitBoard() {
-      const touchLayout = win.matchMedia('(hover:none) and (pointer:coarse)').matches;
-      const availableHeight = win.innerHeight - (touchLayout ? 250 : 28);
-      const availableWidth = win.innerWidth - (touchLayout ? 28 : 330);
-      const scale = Math.max(0.4, Math.min(
-        1,
-        availableHeight / BOARD_H,
-        Math.max(availableWidth, 160) / BOARD_W,
+      layoutSidePanels();
+      const space = availableSpace();
+      // на телефоне поле может расти крупнее исходных 300×600,
+      // на десктопе оставляем 1× — там места и так хватает
+      const maxScale = isCompactLayout() ? 2.5 : 1;
+      // Ограничение по самому окну: если первая раскладка случилась до того,
+      // как браузер применил размер экрана, замер может быть завышен.
+      const viewportLimit = Math.min(
+        (win.innerWidth - 8) / BOARD_W,
+        (win.innerHeight - 8) / BOARD_H,
+      );
+      const scale = Math.max(0.25, Math.min(
+        maxScale,
+        viewportLimit,
+        space.height / BOARD_H,
+        Math.max(space.width, 120) / BOARD_W,
       ));
-      boardEl.style.width = Math.round(BOARD_W * scale) + 'px';
-      boardEl.style.height = Math.round(BOARD_H * scale) + 'px';
+      const cssWidth = Math.floor(BOARD_W * scale);
+      const cssHeight = Math.floor(BOARD_H * scale);
+      boardEl.style.width = cssWidth + 'px';
+      boardEl.style.height = cssHeight + 'px';
+      resizeBoardBuffer(cssWidth, cssHeight);
     }
 
     listen(win, 'resize', fitBoard);
     listen(win, 'orientationchange', fitBoard);
+    // размер панелей меняется вместе с раскладкой — пересчитываем и после загрузки шрифтов
+    win.addEventListener?.('load', fitBoard, { signal: listeners.signal });
+    if (doc.fonts?.ready) doc.fonts.ready.then(() => { if (alive) fitBoard(); }).catch(() => {});
     fitBoard();
+    // Браузер может применить размер окна уже после первого расчёта
+    // (встраивание, поворот экрана, режим «установленного приложения»).
+    fitTimers.push(setTimeout(fitBoard, 0), setTimeout(fitBoard, 250));
 
     /* ────────────────────────── Публичный интерфейс ────────────────────────── */
     function getState() {
@@ -996,19 +1095,80 @@
       alive = false;
       listeners.abort();
       clearTimeout(comboTimer);
+      fitTimers.forEach(clearTimeout);
+    }
+
+    /* ────────────────────────── Подсказки и установка ────────────────────────── */
+    const KEYBOARD_HINT =
+      '<kbd>←</kbd><kbd>→</kbd> движение · <kbd>↓</kbd> мягкий сброс<br>' +
+      '<kbd>↑</kbd>/<kbd>X</kbd> поворот · <kbd>Z</kbd> обратный<br>' +
+      '<kbd>Space</kbd> хард-дроп · <kbd>C</kbd> hold<br>' +
+      '<kbd>P</kbd> пауза · <kbd>R</kbd> заново · <kbd>M</kbd> звук';
+
+    const TOUCH_HINT =
+      'Свайп ← → сдвигает фигуру<br>' +
+      'тап — поворот, свайп ↓ — сброс,<br>' +
+      'свайп ↑ — hold. Или кнопки внизу.';
+
+    const controlHint = () => (isCompactLayout() ? TOUCH_HINT : KEYBOARD_HINT);
+
+    // Установка на телефон: Chrome отдаёт событие, iOS — только инструкция.
+    let installPrompt = null;
+    const isStandalone = () => win.matchMedia('(display-mode: standalone)').matches ||
+      win.navigator.standalone === true;
+
+    function updateInstallOffer() {
+      if (!ovInstallEl) return;
+      const ios = /iPad|iPhone|iPod/.test(win.navigator.userAgent) ||
+        (win.navigator.platform === 'MacIntel' && win.navigator.maxTouchPoints > 1);
+
+      if (isStandalone()) {
+        ovInstallEl.hidden = true;
+        if (ovHintEl) ovHintEl.textContent = '';
+        return;
+      }
+      if (installPrompt) {
+        ovInstallEl.hidden = false;
+        if (ovHintEl) ovHintEl.textContent = '';
+        return;
+      }
+      ovInstallEl.hidden = true;
+      if (ovHintEl) {
+        ovHintEl.textContent = ios
+          ? 'Установить: «Поделиться» → «На экран „Домой“»'
+          : '';
+      }
+    }
+
+    listen(win, 'beforeinstallprompt', (event) => {
+      event.preventDefault();
+      installPrompt = event;
+      updateInstallOffer();
+    });
+
+    listen(win, 'appinstalled', () => {
+      installPrompt = null;
+      updateInstallOffer();
+    });
+
+    if (ovInstallEl) {
+      listen(ovInstallEl, 'click', async () => {
+        if (!installPrompt) return;
+        installPrompt.prompt();
+        try {
+          await installPrompt.userChoice;
+        } finally {
+          installPrompt = null;
+          updateInstallOffer();
+        }
+      });
     }
 
     // Начальный экран
     updateHud();
     drawSidePanels();
-    setOverlay(
-      'TETRIS',
-      '<kbd>←</kbd><kbd>→</kbd> движение · <kbd>↓</kbd> мягкий сброс<br>' +
-      '<kbd>↑</kbd>/<kbd>X</kbd> поворот · <kbd>Z</kbd> обратный<br>' +
-      '<kbd>Space</kbd> хард-дроп · <kbd>C</kbd> hold<br>' +
-      '<kbd>P</kbd> пауза · <kbd>R</kbd> заново · <kbd>M</kbd> звук',
-      'НАЧАТЬ',
-    );
+    setOverlay('TETRIS', controlHint(), 'НАЧАТЬ');
+    updateInstallOffer();
     scheduleFrame(frame);
 
     return { start, togglePause, getState, destroy };

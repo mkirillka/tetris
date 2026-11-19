@@ -5,24 +5,35 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
 <meta name="theme-color" content="#07070c">
 <meta name="description" content="Тетрис в браузере: Super Rotation System, hold, призрак фигуры, T-spin, комбо. Без зависимостей и сборки.">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Тетрис">
 <title>Тетрис</title>
-<link rel="icon" type="image/png" href="assets/favicon.png">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="32x32" href="assets/favicon.png">
+<link rel="icon" type="image/png" sizes="192x192" href="assets/icon-192.png">
 <link rel="apple-touch-icon" href="assets/icon-180.png">
 <link rel="stylesheet" href="assets/styles.css">
 </head>
 <body>
 
 <div class="app">
-  <aside class="panel">
-    <div class="box">
+  <aside class="panel panel-left">
+    <div class="box box-hold">
       <h2>HOLD</h2>
       <canvas id="hold"></canvas>
     </div>
-    <div class="box">
-      <div class="stat"><span>SCORE</span><b id="score">0</b></div>
+
+    <div class="box stats">
+      <div class="stat stat-score"><span>SCORE</span><b id="score">0</b></div>
       <div class="stat"><span>LINES</span><b id="lines">0</b></div>
       <div class="stat"><span>LEVEL</span><b id="level" class="acc">1</b></div>
-      <div class="stat"><span>BEST</span><b id="best" class="hi">0</b></div>
+      <div class="stat stat-best"><span>BEST</span><b id="best" class="hi">0</b></div>
+      <div class="quick">
+        <button type="button" class="icon-btn" data-act="pause" aria-label="Пауза">❚❚</button>
+        <button type="button" class="icon-btn" data-act="restart" aria-label="Начать заново">↺</button>
+      </div>
     </div>
   </aside>
 
@@ -39,15 +50,18 @@
         <kbd>P</kbd> пауза · <kbd>R</kbd> заново · <kbd>M</kbd> звук
       </div>
       <button class="btn" id="ovBtn">НАЧАТЬ</button>
+      <button class="btn btn-ghost" id="ovInstall" hidden>УСТАНОВИТЬ</button>
+      <p class="hint" id="ovHint"></p>
     </div>
   </main>
 
-  <aside class="panel">
-    <div class="box">
+  <aside class="panel panel-right">
+    <div class="box box-next">
       <h2>NEXT</h2>
       <canvas id="next"></canvas>
     </div>
-    <div class="box keys">
+
+    <div class="box keys help">
       <div><span>← →</span>движение</div>
       <div><span>↓</span>мягкий сброс</div>
       <div><span>Space</span>хард-дроп</div>
@@ -60,22 +74,29 @@
       <div><span>M</span>звук</div>
     </div>
   </aside>
-</div>
 
-<div class="touch" id="touch">
-  <button data-act="left">◀</button>
-  <button data-act="ccw">⟲</button>
-  <button data-act="cw">⟳</button>
-  <button data-act="hold">H</button>
-  <button data-act="pause">II</button>
-  <button data-act="soft">▼</button>
-  <button data-act="hard" class="wide">DROP</button>
-  <button data-act="right">▶</button>
+  <div class="controls" id="controls">
+    <button type="button" data-act="left" aria-label="Влево">◀</button>
+    <button type="button" data-act="soft" aria-label="Мягкий сброс">▼</button>
+    <button type="button" data-act="right" aria-label="Вправо">▶</button>
+    <button type="button" data-act="cw" aria-label="Поворот по часовой">⟳</button>
+    <button type="button" data-act="hard" aria-label="Сбросить фигуру">⤓</button>
+    <button type="button" data-act="hold" aria-label="Hold">⇄</button>
+  </div>
 </div>
 
 <script src="assets/game.js"></script>
 <script>
   Tetris.createTetris(document.body);
+
+  // Офлайн-режим: service worker требует http(s), на file:// его просто нет.
+  if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('sw.js').catch(() => {
+        /* без SW игра тоже работает — просто без офлайна */
+      });
+    });
+  }
 </script>
 </body>
 </html>

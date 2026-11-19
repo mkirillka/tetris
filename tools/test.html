@@ -318,7 +318,173 @@
       rect.bottom <= window.innerHeight + 2 && rect.right <= window.innerWidth + 2 && rect.width > 100,
       `${Math.round(rect.width)}×${Math.round(rect.height)} при окне ${window.innerWidth}×${window.innerHeight}`);
 
-    /* ── 10. destroy снимает обработчики ───────────────────────────── */
+    /* ── 10. Управление пальцем: кнопки ────────────────────────────── */
+    const pointer = (el, type, { x = 0, y = 0, id = 7 } = {}) => el.dispatchEvent(new PointerEvent(type, {
+      bubbles: true, cancelable: true, pointerId: id, pointerType: 'touch',
+      clientX: x, clientY: y, isPrimary: true,
+    }));
+    const button = (act) => document.querySelector(`[data-act="${act}"]`);
+
+    game.start();
+    ticks(3);
+    check('кнопки управления есть в разметке', document.querySelectorAll('#controls button').length >= 6,
+      `кнопок=${document.querySelectorAll('#controls button').length}`);
+
+    const xBefore = state().piece.x;
+    pointer(button('left'), 'pointerdown');
+    ticks(2);
+    pointer(button('left'), 'pointerup');
+    check('кнопка «влево» двигает фигуру', state().piece.x === xBefore - 1, `x ${xBefore}→${state().piece.x}`);
+
+    pointer(button('right'), 'pointerdown');
+    ticks(2);
+    pointer(button('right'), 'pointerup');
+    check('кнопка «вправо» возвращает фигуру', state().piece.x === xBefore, `x=${state().piece.x}`);
+
+    const rotationBefore = state().piece.rotation;
+    if (state().piece.type !== 'O') {
+      pointer(button('cw'), 'pointerdown');
+      ticks(2);
+      pointer(button('cw'), 'pointerup');
+      check('кнопка поворота вращает фигуру', state().piece.rotation === (rotationBefore + 1) % 4,
+        `r ${rotationBefore}→${state().piece.rotation}`);
+    }
+
+    const blocksPre = state().board.flat().filter(Boolean).length;
+    pointer(button('hard'), 'pointerdown');
+    ticks(2);
+    pointer(button('hard'), 'pointerup');
+    check('кнопка сброса фиксирует фигуру', state().board.flat().filter(Boolean).length > blocksPre,
+      `блоков ${blocksPre}→${state().board.flat().filter(Boolean).length}`);
+
+    const holdTypeBefore = state().piece.type;
+    pointer(button('hold'), 'pointerdown');
+    ticks(3);
+    pointer(button('hold'), 'pointerup');
+    check('кнопка hold запоминает фигуру', state().hold === holdTypeBefore, `hold=${state().hold}`);
+
+    pointer(button('pause'), 'pointerdown');
+    ticks(2);
+    pointer(button('pause'), 'pointerup');
+    check('кнопка паузы ставит паузу', state().phase === 'paused', state().phase);
+    pointer(button('pause'), 'pointerdown');
+    ticks(2);
+    pointer(button('pause'), 'pointerup');
+    check('кнопка паузы снимает паузу', state().phase === 'playing', state().phase);
+
+    pointer(button('restart'), 'pointerdown');
+    ticks(2);
+    pointer(button('restart'), 'pointerup');
+    check('кнопка рестарта начинает заново', state().phase === 'playing' && state().score === 0,
+      `фаза=${state().phase}, счёт=${state().score}`);
+
+    /* ── 11. Управление пальцем: свайпы по полю ────────────────────── */
+    game.start();
+    ticks(3);
+    const swipeStartX = state().piece.x;
+    const boardRect = $('board').getBoundingClientRect();
+    const midY = boardRect.top + boardRect.height / 2;
+    const midX = boardRect.left + boardRect.width / 2;
+
+    pointer($('board'), 'pointerdown', { x: midX, y: midY, id: 11 });
+    pointer($('board'), 'pointermove', { x: midX - 70, y: midY, id: 11 });
+    pointer($('board'), 'pointerup', { x: midX - 70, y: midY, id: 11 });
+    ticks(2);
+    check('свайп влево двигает фигуру', state().piece.x < swipeStartX, `x ${swipeStartX}→${state().piece.x}`);
+
+    const blocksSwipe = state().board.flat().filter(Boolean).length;
+    pointer($('board'), 'pointerdown', { x: midX, y: midY - 120, id: 12 });
+    pointer($('board'), 'pointerup', { x: midX, y: midY + 40, id: 12 });
+    ticks(3);
+    check('свайп вниз сбрасывает фигуру', state().board.flat().filter(Boolean).length > blocksSwipe,
+      `блоков ${blocksSwipe}→${state().board.flat().filter(Boolean).length}`);
+
+    const rotationSwipe = state().piece.rotation;
+    pointer($('board'), 'pointerdown', { x: midX, y: midY, id: 13 });
+    pointer($('board'), 'pointerup', { x: midX + 2, y: midY + 2, id: 13 });
+    ticks(2);
+    check('тап по полю поворачивает фигуру',
+      state().piece.type === 'O' || state().piece.rotation !== rotationSwipe,
+      `r ${rotationSwipe}→${state().piece.rotation}`);
+
+    /* ── 12. Мобильная раскладка (в iframe нужной ширины) ──────────── */
+    const measureFrame = async (width, height) => new Promise((resolve) => {
+      const frame = document.createElement('iframe');
+      frame.style.cssText = `position:fixed;left:0;top:0;width:${width}px;height:${height}px;border:0;visibility:hidden`;
+      frame.src = '../index.html';
+      frame.onload = () => {
+        // ждём, пока игра инициализируется и подгонит поле
+        const probe = () => {
+          const fdoc = frame.contentDocument;
+          const boardEl = fdoc.getElementById('board');
+          const controls = fdoc.getElementById('controls');
+          const app = fdoc.querySelector('.app');
+          if (!boardEl || !app || !boardEl.style.width) { setTimeout(probe, 30); return; }
+          const b = boardEl.getBoundingClientRect();
+          const c = controls.getBoundingClientRect();
+          const doc = fdoc.documentElement;
+          resolve({
+            boardHeightShare: +(b.height / height * 100).toFixed(1),
+            boardWidthShare: +(b.width / width * 100).toFixed(1),
+            controlsVisible: fdoc.defaultView.getComputedStyle(controls).display !== 'none' && c.height > 0,
+            controlsButtons: controls.querySelectorAll('button').length,
+            overflowY: Math.max(0, doc.scrollHeight - height),
+            overflowX: Math.max(0, doc.scrollWidth - width),
+            fits: b.bottom <= height + 1 && b.right <= width + 1,
+          });
+          frame.remove();
+        };
+        probe();
+      };
+      document.body.appendChild(frame);
+    });
+
+    const phone = await measureFrame(390, 844);
+    check('на телефоне поле занимает больше половины высоты', phone.boardHeightShare >= 70,
+      `${phone.boardHeightShare}% высоты, ${phone.boardWidthShare}% ширины`);
+    check('на телефоне кнопки управления видны', phone.controlsVisible && phone.controlsButtons >= 6,
+      `кнопок=${phone.controlsButtons}`);
+    check('на телефоне нет прокрутки', phone.overflowX === 0 && phone.overflowY === 0,
+      `overflow=${phone.overflowX}×${phone.overflowY}`);
+    check('на телефоне поле целиком в экране', phone.fits);
+
+    const smallPhone = await measureFrame(360, 640);
+    check('на маленьком экране поле тоже крупное', smallPhone.boardHeightShare >= 65,
+      `${smallPhone.boardHeightShare}% высоты, ${smallPhone.boardWidthShare}% ширины`);
+    check('на маленьком экране кнопки видны и нет прокрутки',
+      smallPhone.controlsVisible && smallPhone.overflowY === 0,
+      `кнопки=${smallPhone.controlsVisible}, overflow=${smallPhone.overflowY}`);
+
+    /* ── 13. PWA: манифест, service worker, установка ──────────────── */
+    const indexSource = await (await fetch('../index.html')).text();
+    const manifestHref = indexSource.match(/<link[^>]+rel="manifest"[^>]+href="([^"]+)"/)?.[1];
+    check('манифест подключён', manifestHref === 'manifest.webmanifest', String(manifestHref));
+    const manifest = await (await fetch('../manifest.webmanifest')).json();
+    check('манифест задаёт standalone-режим', manifest.display === 'standalone', manifest.display);
+    check('манифест содержит иконки 192 и 512',
+      manifest.icons.some((i) => i.sizes === '192x192') && manifest.icons.some((i) => i.sizes === '512x512'),
+      manifest.icons.map((i) => i.sizes).join(','));
+    check('манифест содержит maskable-иконку',
+      manifest.icons.some((i) => (i.purpose || '').includes('maskable')),
+      manifest.icons.map((i) => i.purpose || 'any').join(','));
+
+    const iconChecks = await Promise.all(manifest.icons.map(async (icon) => {
+      const response = await fetch('../' + icon.src);
+      return response.ok;
+    }));
+    check('файлы иконок из манифеста существуют', iconChecks.every(Boolean),
+      manifest.icons.map((i, n) => `${i.src}:${iconChecks[n] ? 'ok' : 'нет'}`).join(' '));
+
+    const swResponse = await fetch('../sw.js');
+    const swText = await swResponse.text();
+    check('service worker доступен', swResponse.ok, `HTTP ${swResponse.status}`);
+    check('service worker кеширует игру', /addAll/.test(swText) && /assets\/game\.js/.test(swText));
+
+    check('страница регистрирует service worker', /serviceWorker\.register/.test(indexSource));
+    check('есть кнопка установки, скрытая по умолчанию',
+      document.getElementById('ovInstall')?.hidden === true);
+
+    /* ── 14. destroy снимает обработчики ───────────────────────────── */
     game.destroy();
     const phaseBefore = state().phase;
     tap('KeyP');

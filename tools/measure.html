@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<base href="../">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>замер раскладки</title>
+<style>html,body{margin:0;background:#000;color:#fff;font:12px monospace}</style>
+<link rel="stylesheet" href="../assets/styles.css">
+<script src="../assets/game.js"></script>
+</head>
+<body>
+<script>
+/*
+ * Замер мобильной раскладки: сколько места занимает поле, влезает ли всё
+ * в экран без прокрутки и видны ли кнопки управления.
+ * Открывать в эмуляции устройства: tools/measure.html
+ */
+(async () => {
+ try {
+  const html = await (await fetch('index.html')).text();
+  const parsed = new DOMParser().parseFromString(html, 'text/html');
+  parsed.body.querySelectorAll('script').forEach((el) => el.remove());
+  document.body.innerHTML = parsed.body.innerHTML;
+
+  let now = 1000, pending = null;
+  const game = Tetris.createTetris(document.body, {
+    clock: { now: () => now },
+    scheduleFrame: (cb) => { pending = cb; },
+  });
+  now += 16; if (pending) pending(now);
+  game.start();
+  now += 16; if (pending) pending(now);
+
+  const rect = (el) => el.getBoundingClientRect();
+  const board = document.getElementById('board');
+  const b = rect(board);
+  const app = rect(document.querySelector('.app'));
+  const controls = document.getElementById('controls') ||
+    document.getElementById('touch') ||
+    document.createElement('div');
+  const stats = [...document.querySelectorAll('.stat')];
+  const doc = document.documentElement;
+
+  // элемент реально виден: не display:none и целиком в пределах экрана
+  const visible = (el) => {
+    const r = rect(el);
+    const s = getComputedStyle(el);
+    return s.display !== 'none' && s.visibility !== 'hidden' &&
+      r.width > 0 && r.height > 0 &&
+      r.bottom <= window.innerHeight + 1 && r.right <= window.innerWidth + 1;
+  };
+
+  const result = {
+    viewport: `${window.innerWidth}x${window.innerHeight}`,
+    compact: window.matchMedia('(hover:none) and (pointer:coarse), (max-width:560px)').matches,
+    boardPx: `${Math.round(b.width)}x${Math.round(b.height)}`,
+    boardShareOfWidth: +(b.width / window.innerWidth * 100).toFixed(1),
+    boardShareOfHeight: +(b.height / window.innerHeight * 100).toFixed(1),
+    cellSize: +(b.width / 10).toFixed(1),
+    appHeight: Math.round(app.height),
+    controlsVisible: visible(controls),
+    controlsButtons: [...controls.querySelectorAll('button')].filter(visible).length,
+    statsVisible: stats.filter(visible).length,
+    statsTotal: stats.length,
+    scrollWidth: doc.scrollWidth,
+    scrollHeight: doc.scrollHeight,
+    overflowX: Math.max(0, doc.scrollWidth - window.innerWidth),
+    overflowY: Math.max(0, doc.scrollHeight - window.innerHeight),
+    boardFits: visible(board),
+  };
+
+  const pre = document.createElement('pre');
+  pre.id = 'MEASURE';
+  pre.textContent = JSON.stringify(result);
+  document.body.appendChild(pre);
+ } catch (e) {
+  const pre = document.createElement('pre');
+  pre.id = 'MEASURE';
+  pre.textContent = JSON.stringify({ error: String(e && e.stack || e) });
+  document.body.appendChild(pre);
+ }
+})();
+</script>
+</body>
+</html>
