@@ -102,15 +102,23 @@
     const boardEl = $('board');
     const nextEl = $('next');
     const holdEl = $('hold');
+    const holdBoxEl = $('holdBox');
+    const nextBoxEl = $('nextBox');
     const overlayEl = $('overlay');
     const ovTitleEl = $('ovTitle');
     const ovSubEl = $('ovSub');
     const ovBtnEl = $('ovBtn');
+    const ovSecondaryEl = $('ovSecondary');
+    const ovSettingsEl = $('ovSettings');
+    const settingsEl = $('settings');
+    const settingsDoneEl = $('settingsDone');
+    const settingsNoteEl = $('settingsNote');
     const scoreEl = $('score');
     const linesEl = $('lines');
     const levelEl = $('level');
     const bestEl = $('best');
     const comboEl = $('combo');
+    const controlsEl = $('controls');
     const ovInstallEl = $('ovInstall');
     const ovHintEl = $('ovHint');
     const stageEl = boardEl.parentElement;
@@ -194,6 +202,27 @@
         try { win.localStorage.setItem(key, value); } catch { /* приватный режим */ }
       },
     };
+
+    /* ────────────────────────── Настройки ────────────────────────── */
+    const SETTINGS_KEY = 'tetris.settings';
+    const DEFAULT_SETTINGS = { hold: true, next: true, speed: true };
+    const settings = { ...DEFAULT_SETTINGS };
+
+    // Читаем аккуратно: битый JSON или чужие ключи не должны ломать игру.
+    (function loadSettings() {
+      const raw = storage.read(SETTINGS_KEY);
+      if (!raw) return;
+      let saved;
+      try { saved = JSON.parse(raw); } catch { return; }
+      if (!saved || typeof saved !== 'object') return;
+      for (const key of Object.keys(DEFAULT_SETTINGS)) {
+        if (typeof saved[key] === 'boolean') settings[key] = saved[key];
+      }
+    })();
+
+    function saveSettings() {
+      storage.write(SETTINGS_KEY, JSON.stringify(settings));
+    }
 
     /* ────────────────────────── Состояние ────────────────────────── */
     const emptyBoard = () => Array.from({ length: ROWS }, () => Array(COLS).fill(null));
@@ -348,6 +377,7 @@
     }
 
     function holdPiece() {
+      if (!settings.hold) return;                // замена отключена в настройках
       if (!piece || phase !== 'playing' || holdUsed) return;
       const current = piece.type;
       if (holdType === null) {
@@ -468,10 +498,14 @@
       comboTimer = setTimeout(() => comboEl.classList.remove('show'), 620);
     }
 
-    function setOverlay(title, subHtml, buttonLabel) {
+    function setOverlay(title, subHtml, buttonLabel, secondaryLabel = null) {
       ovTitleEl.textContent = title;
       ovSubEl.innerHTML = subHtml;
       ovBtnEl.textContent = buttonLabel;
+      if (ovSecondaryEl) {
+        ovSecondaryEl.textContent = secondaryLabel ?? '';
+        ovSecondaryEl.hidden = !secondaryLabel;
+      }
       overlayEl.classList.remove('hide');
     }
 
@@ -483,8 +517,10 @@
 
     /* ────────────────────────── Игровой цикл ────────────────────────── */
     function gravityInterval() {
-      // Классическая кривая скорости: (0.8 − 0.007·(L−1))^(L−1) секунд на клетку
-      const lvl = Math.min(level, MAX_LEVEL);
+      // Классическая кривая скорости: (0.8 − 0.007·(L−1))^(L−1) секунд на клетку.
+      // Если ускорение темпа выключено, скорость остаётся как на первом уровне,
+      // а уровни продолжают расти и влиять на очки.
+      const lvl = settings.speed ? Math.min(level, MAX_LEVEL) : 1;
       return Math.max(16, Math.pow(0.8 - (lvl - 1) * 0.007, lvl - 1) * 1000);
     }
 
@@ -565,10 +601,19 @@
       const alpha = opts.alpha ?? 1;
 
       if (opts.ghost) {
+        // Тень должна читаться на любом фоне: полупрозрачная заливка
+        // плюс яркий контур и лёгкое свечение.
         context.save();
-        context.globalAlpha = 0.32;
+        roundRect(context, x + pad, y + pad, inner, inner, size * 0.16);
+        context.globalAlpha = 0.22;
+        context.fillStyle = to;
+        context.fill();
+
+        context.globalAlpha = 0.95;
         context.strokeStyle = from;
-        context.lineWidth = Math.max(1.5, size * 0.07);
+        context.lineWidth = Math.max(2, size * 0.1);
+        context.shadowColor = from;
+        context.shadowBlur = size * 0.45;
         roundRect(context, x + pad, y + pad, inner, inner, size * 0.16);
         context.stroke();
         context.restore();
@@ -687,15 +732,18 @@
 
     function drawSidePanels() {
       nextCtx.clearRect(0, 0, NEXT_W, nextHeight);
-      for (let i = 0; i < nextSlots; i++) {
-        const type = queue[i];
-        if (!type) continue;
-        nextCtx.globalAlpha = i === 0 ? 1 : 0.6 - i * 0.12;
-        drawMini(nextCtx, BASE[type], type, NEXT_W / 2, 12 + i * 62 + 25, i === 0 ? 17 : 14);
-        nextCtx.globalAlpha = 1;
+      if (settings.next) {
+        for (let i = 0; i < nextSlots; i++) {
+          const type = queue[i];
+          if (!type) continue;
+          nextCtx.globalAlpha = i === 0 ? 1 : 0.6 - i * 0.12;
+          drawMini(nextCtx, BASE[type], type, NEXT_W / 2, 12 + i * 62 + 25, i === 0 ? 17 : 14);
+          nextCtx.globalAlpha = 1;
+        }
       }
 
       holdCtx.clearRect(0, 0, HOLD_W, HOLD_H);
+      if (!settings.hold) return;
       if (holdType) {
         holdCtx.globalAlpha = holdUsed ? 0.32 : 1;
         drawMini(holdCtx, BASE[holdType], holdType, HOLD_W / 2, HOLD_H / 2, 17);
@@ -739,7 +787,12 @@
     function togglePause() {
       if (phase === 'playing') {
         phase = 'paused';
-        setOverlay('ПАУЗА', isCompactLayout() ? 'Кнопка ниже продолжит партию' : 'Продолжить — <kbd>P</kbd> или кнопка ниже', 'ПРОДОЛЖИТЬ');
+        setOverlay(
+          'ПАУЗА',
+          isCompactLayout() ? 'Продолжить или начать заново' : 'Продолжить — <kbd>P</kbd>, заново — <kbd>R</kbd>',
+          'ПРОДОЛЖИТЬ',
+          'ЗАНОВО',
+        );
       } else if (phase === 'paused') {
         hideOverlay();
         phase = 'playing';
@@ -860,6 +913,7 @@
       }
     });
 
+    /* ────────────────────────── Ввод ────────────────────────── */
     listen(root, 'pointerdown', (event) => {
       const button = event.target.closest?.('button[data-act]');
       if (!button) return;
@@ -879,66 +933,52 @@
         else togglePause();
         return;
       }
-      if (action === 'restart') {
-        start();
-        return;
-      }
       if (phase !== 'playing') {
         if (phase === 'ready' || phase === 'over') start();
         return;
       }
-
-      switch (action) {
-        case 'left': pressDir(-1); break;
-        case 'right': pressDir(1); break;
-        case 'soft': pressed.down = true; dropAcc = softInterval(); break;
-        case 'cw': rotate(1); break;
-        case 'ccw': rotate(-1); break;
-        case 'hard': hardDrop(); break;
-        case 'hold': holdPiece(); break;
-      }
+      if (action === 'hold') holdPiece();
     });
 
     const stopTouch = (event) => {
       const button = event.target.closest?.('button[data-act]');
       button?.classList.remove('is-pressed');
-      switch (button?.dataset.act) {
-        case 'left': releaseDir(-1); break;
-        case 'right': releaseDir(1); break;
-        case 'soft': pressed.down = false; break;
-      }
     };
     listen(root, 'pointerup', stopTouch);
     listen(root, 'pointercancel', stopTouch);
     listen(root, 'lostpointercapture', stopTouch);
 
-    // Свайпы по полю: горизонталь — сдвиг, вниз — мягкий сброс,
-    // тап — поворот, свайп вниз — хард-дроп, вверх — hold.
-    let touchStart = null;
+    /* Свайпы и тапы по полю — основное управление на телефоне:
+       ← → сдвиг, тап — поворот, вниз — быстрое падение, вверх — сброс. */
+    let touch = null;
+
+    const swipeStep = () => Math.max(14, boardEl.clientWidth / COLS * 0.7);
 
     listen(boardEl, 'pointerdown', (event) => {
-      touchStart = {
-        x: event.clientX,
+      touch = {
+        startY: event.clientY,
         y: event.clientY,
         lastX: event.clientX,
         time: clock.now(),
-        moved: false,
+        movedH: false,
+        movedDown: false,
       };
     });
 
     listen(boardEl, 'pointermove', (event) => {
-      if (!touchStart || phase !== 'playing') return;
+      if (!touch || phase !== 'playing' || !piece) return;
 
-      const dx = event.clientX - touchStart.lastX;
-      if (Math.abs(dx) > CELL) {
-        touchStart.moved = true;
+      const dx = event.clientX - touch.lastX;
+      if (Math.abs(dx) > swipeStep()) {
+        touch.movedH = true;
         if (tryMove(dx > 0 ? 1 : -1, 0)) SND.move();
-        touchStart.lastX = event.clientX;
+        touch.lastX = event.clientX;
       }
 
-      if (event.clientY - touchStart.y > 60) {
-        touchStart.moved = true;
-        touchStart.y = event.clientY;
+      // тянем вниз — ускоряем падение (как мягкий сброс)
+      if (event.clientY - touch.y > 26) {
+        touch.movedDown = true;
+        touch.y = event.clientY;
         if (!collide(piece.matrix, piece.x, piece.y + 1)) {
           piece.y++;
           score++;
@@ -948,31 +988,112 @@
     });
 
     listen(boardEl, 'pointerup', (event) => {
-      if (!touchStart) return;
-      const elapsed = clock.now() - touchStart.time;
-      const dy = event.clientY - touchStart.y;
+      if (!touch) return;
+      const elapsed = clock.now() - touch.time;
+      const totalDy = event.clientY - touch.startY;
+      const tap = !touch.movedH && !touch.movedDown && elapsed < 300 && Math.abs(totalDy) < 22;
+      const upFlick = !touch.movedDown && totalDy < -45;
+      touch = null;
 
       if (phase === 'ready' || phase === 'over') {
         start();
-        touchStart = null;
         return;
       }
-      if (!touchStart.moved && elapsed < 250) {
-        if (dy > 80) hardDrop();
-        else if (dy < -60) holdPiece();
-        else rotate(1);
-      }
-      touchStart = null;
+      if (phase !== 'playing') return;
+      if (tap) rotate(1);
+      else if (upFlick) hardDrop();
     });
+
+    listen(boardEl, 'pointercancel', () => { touch = null; });
 
     listen(ovBtnEl, 'click', () => {
       if (phase === 'paused') togglePause();
       else start();
     });
 
+    if (ovSecondaryEl) listen(ovSecondaryEl, 'click', () => start());
+
     listen(doc, 'visibilitychange', () => {
       if (doc.hidden && phase === 'playing') togglePause();
     });
+
+    /* ────────────────────────── Настройки: экран ────────────────────────── */
+    const toggleInputs = {
+      hold: $('optHold'),
+      next: $('optNext'),
+      speed: $('optSpeed'),
+    };
+
+    function applySettings() {
+      if (holdBoxEl) holdBoxEl.hidden = !settings.hold;
+      if (nextBoxEl) nextBoxEl.hidden = !settings.next;
+      // у замены нет смысла, если она выключена — прячем и кнопку
+      const holdButton = controlsEl?.querySelector('[data-act="hold"]');
+      if (holdButton) holdButton.hidden = !settings.hold;
+      drawSidePanels();
+      layoutSidePanels();
+      fitBoard();
+    }
+
+    function syncSettingsUi() {
+      for (const [key, input] of Object.entries(toggleInputs)) {
+        if (input) input.checked = settings[key];
+      }
+      if (settingsNoteEl) {
+        settingsNoteEl.textContent = settings.speed
+          ? ''
+          : 'Без ускорения: скорость постоянная, уровни влияют только на очки.';
+      }
+    }
+
+    let settingsOpen = false;
+    let phaseBeforeSettings = null;
+
+    function openSettings() {
+      if (settingsOpen) return;
+      settingsOpen = true;
+      phaseBeforeSettings = phase;
+      if (phase === 'playing') {
+        phase = 'paused';
+      }
+      syncSettingsUi();
+      if (settingsEl) settingsEl.hidden = false;
+    }
+
+    function closeSettings() {
+      if (!settingsOpen) return;
+      settingsOpen = false;
+      if (settingsEl) settingsEl.hidden = true;
+
+      // если открывали на ходу — возвращаем игру и перерисовываем экран
+      if (phase === 'paused' && phaseBeforeSettings === 'playing') {
+        phase = 'playing';
+        hideOverlay();
+        lastFrame = clock.now();
+      } else if (phaseBeforeSettings === 'playing') {
+        lastFrame = clock.now();
+      }
+      phaseBeforeSettings = null;
+      updateHud();
+    }
+
+    for (const [key, input] of Object.entries(toggleInputs)) {
+      if (!input) continue;
+      listen(input, 'change', () => {
+        settings[key] = Boolean(input.checked);
+        saveSettings();
+        syncSettingsUi();
+        applySettings();
+      });
+    }
+
+    if (settingsDoneEl) listen(settingsDoneEl, 'click', closeSettings);
+    if (settingsEl) {
+      listen(settingsEl, 'click', (event) => {
+        if (event.target === settingsEl) closeSettings();   // тап по фону
+      });
+    }
+    if (ovSettingsEl) listen(ovSettingsEl, 'click', openSettings);
 
     /* ────────────────────────── Подгонка под экран ────────────────────────── */
     // Раскладка переключается в CSS, JS спрашивает у него тот же media-запрос.
@@ -1005,13 +1126,23 @@
       };
     }
 
-    // Пересобирает панель NEXT под текущую раскладку (3 фигуры на десктопе, 2 на телефоне)
+    // Сколько фигур показывать в NEXT: 3 на десктопе, 2 на телефоне, 0 если выключено
+    function nextSlotCount() {
+      if (!settings.next) return 0;
+      return isCompactLayout() ? 2 : NEXT_COUNT;
+    }
+
+    // Пересобирает панель NEXT под текущую раскладку и настройки
     function layoutSidePanels() {
-      const slots = isCompactLayout() ? 2 : NEXT_COUNT;
+      const slots = nextSlotCount();
       if (slots === nextSlots) return;
       nextSlots = slots;
-      nextHeight = slots * 62 + 12;
-      setupCanvas(nextEl, nextCtx, NEXT_W, nextHeight);
+      if (slots > 0) {
+        nextHeight = slots * 62 + 12;
+        setupCanvas(nextEl, nextCtx, NEXT_W, nextHeight);
+      } else {
+        nextHeight = 0;
+      }
       drawSidePanels();
     }
 
@@ -1088,6 +1219,8 @@
         next: queue.slice(),
         hold: holdType,
         holdUsed,
+        settings: { ...settings },
+        gravityMs: Math.round(gravityInterval()),
       };
     }
 
@@ -1102,13 +1235,14 @@
     const KEYBOARD_HINT =
       '<kbd>←</kbd><kbd>→</kbd> движение · <kbd>↓</kbd> мягкий сброс<br>' +
       '<kbd>↑</kbd>/<kbd>X</kbd> поворот · <kbd>Z</kbd> обратный<br>' +
-      '<kbd>Space</kbd> хард-дроп · <kbd>C</kbd> hold<br>' +
+      '<kbd>Space</kbd> сброс фигуры · <kbd>C</kbd> замена<br>' +
       '<kbd>P</kbd> пауза · <kbd>R</kbd> заново · <kbd>M</kbd> звук';
 
     const TOUCH_HINT =
-      'Свайп ← → сдвигает фигуру<br>' +
-      'тап — поворот, свайп ↓ — сброс,<br>' +
-      'свайп ↑ — hold. Или кнопки внизу.';
+      'Тяни влево-вправо — движение<br>' +
+      'тап — поворот, тяни вниз — падение,<br>' +
+      'свайп вверх — сброс фигуры.<br>' +
+      'Внизу только замена и пауза.';
 
     const controlHint = () => (isCompactLayout() ? TOUCH_HINT : KEYBOARD_HINT);
 
@@ -1166,7 +1300,8 @@
 
     // Начальный экран
     updateHud();
-    drawSidePanels();
+    applySettings();
+    syncSettingsUi();
     setOverlay('TETRIS', controlHint(), 'НАЧАТЬ');
     updateInstallOffer();
     scheduleFrame(frame);

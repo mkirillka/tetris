@@ -7,7 +7,7 @@
  *
  * При изменении файлов меняйте VERSION — старый кеш удалится при активации.
  */
-const VERSION = 'v1.1.0';
+const VERSION = 'v1.2.0';
 const CACHE = `tetris-${VERSION}`;
 
 const ASSETS = [

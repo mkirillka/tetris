@@ -143,18 +143,59 @@ body{
 .combo.show{opacity:1;transform:translate(-50%,-50%) scale(1)}
 
 /* ───────────────────── Кнопки для пальцев ───────────────────── */
+/* Их всего две — замена и пауза, поэтому они крупные. */
 .controls{display:none;grid-area:controls}
-.quick{display:none;gap:4px;grid-column:1/-1;margin-top:2px}
-.icon-btn{
-  flex:1 1 0;
+
+/* ───────────────────── Настройки ───────────────────── */
+.settings-panel{
+  position:fixed;inset:0;z-index:30;
   display:flex;align-items:center;justify-content:center;
-  min-height:26px;padding:0;
-  border:1px solid var(--line);border-radius:8px;
-  background:linear-gradient(180deg,var(--panel),var(--panel-2));
-  color:var(--dim);font:inherit;font-size:11px;line-height:1;
-  touch-action:none;
+  padding:16px;
+  background:rgba(6,6,12,.86);
+  backdrop-filter:blur(4px);
 }
-.icon-btn:active,.icon-btn.is-pressed{background:#2b2b3d;color:var(--text)}
+.settings-panel[hidden]{display:none}
+.settings-card{
+  width:100%;max-width:320px;
+  display:flex;flex-direction:column;gap:8px;
+  padding:18px;
+  border:1px solid var(--line);border-radius:16px;
+  background:linear-gradient(180deg,var(--panel),var(--panel-2));
+  box-shadow:0 24px 60px rgba(0,0,0,.6);
+}
+.settings-title{
+  margin:0 0 4px;font-size:13px;letter-spacing:.2em;color:var(--text);font-weight:700;
+  text-align:center;
+}
+.settings-note{margin:0;font-size:10px;line-height:1.5;color:var(--dim);min-height:1px}
+
+.toggle{
+  display:flex;align-items:center;justify-content:space-between;gap:12px;
+  padding:10px 12px;cursor:pointer;
+  border:1px solid var(--line);border-radius:11px;
+  background:rgba(255,255,255,.03);
+  font-size:12px;letter-spacing:.04em;color:var(--text);
+  transition:background .15s;
+}
+.toggle:hover{background:rgba(255,255,255,.06)}
+.toggle input{
+  appearance:none;-webkit-appearance:none;flex:0 0 auto;margin:0;
+  width:42px;height:24px;border-radius:12px;
+  background:#2a2a38;position:relative;cursor:pointer;
+  transition:background .15s;
+}
+.toggle input::after{
+  content:'';position:absolute;top:3px;left:3px;
+  width:18px;height:18px;border-radius:50%;
+  background:#8b8ba0;
+  transition:transform .15s, background .15s;
+}
+.toggle input:checked{background:rgba(124,92,255,.7)}
+.toggle input:checked::after{transform:translateX(18px);background:#fff}
+.toggle input:focus-visible{outline:2px solid var(--accent-2);outline-offset:2px}
+
+.btn-small{font-size:10px;padding:7px 12px}
+[hidden]{display:none !important}
 
 /* ───────────────────── Компактная раскладка ─────────────────────
    Включается на устройствах без мыши и в узком окне.                */
@@ -232,32 +273,36 @@ body{
 
   .controls{
     display:grid;
-    grid-template-columns:repeat(6,1fr);
-    gap:6px;
+    grid-template-columns:1fr 1fr;
+    gap:8px;
     touch-action:none;
   }
   .controls button{
-    display:flex;align-items:center;justify-content:center;
-    min-height:50px;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;
+    min-height:62px;
     padding:0;
-    border:1px solid var(--line);border-radius:12px;
-    background:linear-gradient(180deg,var(--panel),var(--panel-2));
+    border:1px solid rgba(255,255,255,.14);border-radius:14px;
+    background:linear-gradient(180deg,#1b1b27,#14141d);
     color:var(--text);
-    font:inherit;font-size:20px;line-height:1;
+    font:inherit;font-size:22px;line-height:1;
     touch-action:none;
     transition:background .08s, transform .08s;
   }
+  .controls button span{
+    font-size:10px;letter-spacing:.14em;color:var(--dim);line-height:1;
+  }
   .controls button:active,
   .controls button.is-pressed{
-    background:linear-gradient(180deg,#2b2b3d,#232330);
-    transform:scale(.96);
+    background:linear-gradient(180deg,#33334a,#26263a);
+    transform:scale(.97);
   }
-  .quick{display:flex}
+  .controls button:active span,
+  .controls button.is-pressed span{color:var(--text)}
 }
 
 /* На низких экранах ужимаем кнопки, чтобы поле осталось большим */
 @media (hover:none) and (pointer:coarse) and (max-height:700px), (max-width:560px) and (max-height:700px){
-  .controls button{min-height:44px;font-size:18px}
+  .controls button{min-height:52px;font-size:20px}
 }
 
 /* Телефон в горизонтальной ориентации: кнопки по краям, поле в центре */
@@ -270,8 +315,8 @@ body{
       "stats board controls";
     gap:6px;
   }
-  .controls{grid-template-columns:repeat(3,1fr);align-self:end}
-  .controls button{min-height:38px;font-size:16px}
+  .controls{grid-template-columns:1fr;align-self:end}
+  .controls button{min-height:46px;font-size:18px;flex-direction:row;gap:6px}
   .stat-best{display:none}
 }
 

@@ -20,7 +20,7 @@
 
 <div class="app">
   <aside class="panel panel-left">
-    <div class="box box-hold">
+    <div class="box box-hold" id="holdBox">
       <h2>HOLD</h2>
       <canvas id="hold"></canvas>
     </div>
@@ -30,10 +30,6 @@
       <div class="stat"><span>LINES</span><b id="lines">0</b></div>
       <div class="stat"><span>LEVEL</span><b id="level" class="acc">1</b></div>
       <div class="stat stat-best"><span>BEST</span><b id="best" class="hi">0</b></div>
-      <div class="quick">
-        <button type="button" class="icon-btn" data-act="pause" aria-label="Пауза">❚❚</button>
-        <button type="button" class="icon-btn" data-act="restart" aria-label="Начать заново">↺</button>
-      </div>
     </div>
   </aside>
 
@@ -50,13 +46,15 @@
         <kbd>P</kbd> пауза · <kbd>R</kbd> заново · <kbd>M</kbd> звук
       </div>
       <button class="btn" id="ovBtn">НАЧАТЬ</button>
-      <button class="btn btn-ghost" id="ovInstall" hidden>УСТАНОВИТЬ</button>
+      <button class="btn btn-ghost" id="ovSecondary" hidden>ЗАНОВО</button>
+      <button class="btn btn-ghost btn-small" id="ovSettings">НАСТРОЙКИ</button>
+      <button class="btn btn-ghost btn-small" id="ovInstall" hidden>УСТАНОВИТЬ</button>
       <p class="hint" id="ovHint"></p>
     </div>
   </main>
 
   <aside class="panel panel-right">
-    <div class="box box-next">
+    <div class="box box-next" id="nextBox">
       <h2>NEXT</h2>
       <canvas id="next"></canvas>
     </div>
@@ -68,20 +66,39 @@
       <div><span>↑ / X</span>поворот CW</div>
       <div><span>Z</span>поворот CCW</div>
       <div><span>A</span>поворот 180</div>
-      <div><span>C / Shift</span>hold</div>
+      <div><span>C</span>замена</div>
       <div><span>P / Esc</span>пауза</div>
       <div><span>R</span>заново</div>
       <div><span>M</span>звук</div>
     </div>
   </aside>
 
+  <!-- Кнопок всего две: остальное — свайпы и тапы по полю -->
   <div class="controls" id="controls">
-    <button type="button" data-act="left" aria-label="Влево">◀</button>
-    <button type="button" data-act="soft" aria-label="Мягкий сброс">▼</button>
-    <button type="button" data-act="right" aria-label="Вправо">▶</button>
-    <button type="button" data-act="cw" aria-label="Поворот по часовой">⟳</button>
-    <button type="button" data-act="hard" aria-label="Сбросить фигуру">⤓</button>
-    <button type="button" data-act="hold" aria-label="Hold">⇄</button>
+    <button type="button" data-act="hold" aria-label="Заменить фигуру">⇄<span>ЗАМЕНА</span></button>
+    <button type="button" data-act="pause" aria-label="Пауза">❚❚<span>ПАУЗА</span></button>
+  </div>
+</div>
+
+<div class="settings-panel" id="settings" hidden>
+  <div class="settings-card">
+    <h2 class="settings-title">НАСТРОЙКИ</h2>
+
+    <label class="toggle">
+      <span>Замена фигуры</span>
+      <input type="checkbox" id="optHold" checked>
+    </label>
+    <label class="toggle">
+      <span>Показывать следующие</span>
+      <input type="checkbox" id="optNext" checked>
+    </label>
+    <label class="toggle">
+      <span>Ускорение темпа</span>
+      <input type="checkbox" id="optSpeed" checked>
+    </label>
+
+    <p class="settings-note" id="settingsNote"></p>
+    <button class="btn" id="settingsDone">ГОТОВО</button>
   </div>
 </div>
 

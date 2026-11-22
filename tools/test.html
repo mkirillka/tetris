@@ -193,6 +193,33 @@
     check('фигура появилась на поле', !!state().piece, state().piece?.type);
     check('очередь NEXT заполнена', state().next.length >= 3, `next=${state().next.length}`);
     check('поле отрисовано', brightPixels($('board')) > 500, `пикселей=${brightPixels($('board'))}`);
+
+    // Тень фигуры должна быть заметной: смотрим яркость контура в клетках призрака
+    const boardCanvas = $('board');
+    const bufferRatio = boardCanvas.width / (COLS * 30);
+    const ghostSample = (() => {
+      const current = state();
+      if (!current.piece) return null;
+      const { x, y, ghostY, matrix } = current.piece;
+      if (ghostY === y) return null;
+      const cctx = boardCanvas.getContext('2d');
+      let maxLum = 0;
+      for (let r = 0; r < matrix.length; r++) {
+        for (let c = 0; c < matrix[r].length; c++) {
+          if (!matrix[r][c]) continue;
+          const px = Math.round(((x + c) * 30 + 15) * bufferRatio);
+          const py = Math.round(((ghostY + r) * 30 + 2) * bufferRatio);
+          const box = cctx.getImageData(px - 3, py, 7, 4).data;
+          for (let i = 0; i < box.length; i += 4) {
+            const lum = 0.2126 * box[i] + 0.7152 * box[i + 1] + 0.0722 * box[i + 2];
+            if (lum > maxLum) maxLum = lum;
+          }
+        }
+      }
+      return Math.round(maxLum);
+    })();
+    check('тень фигуры хорошо видна (яркий контур)',
+      ghostSample !== null && ghostSample > 140, `яркость контура=${ghostSample}`);
     check('панель NEXT отрисована', brightPixels($('next')) > 300, `пикселей=${brightPixels($('next'))}`);
 
     /* ── 3. Движение и поворот ─────────────────────────────────────── */
@@ -324,58 +351,39 @@
       clientX: x, clientY: y, isPrimary: true,
     }));
     const button = (act) => document.querySelector(`[data-act="${act}"]`);
+    const pressButton = (act) => {
+      pointer(button(act), 'pointerdown');
+      ticks(2);
+      pointer(button(act), 'pointerup');
+    };
 
     game.start();
     ticks(3);
-    check('кнопки управления есть в разметке', document.querySelectorAll('#controls button').length >= 6,
+    check('кнопок всего две — замена и пауза',
+      document.querySelectorAll('#controls button').length === 2,
       `кнопок=${document.querySelectorAll('#controls button').length}`);
+    check('в кнопках нет движения и поворотов',
+      !document.querySelector('[data-act="left"], [data-act="right"], [data-act="cw"], [data-act="hard"]'));
 
-    const xBefore = state().piece.x;
-    pointer(button('left'), 'pointerdown');
-    ticks(2);
-    pointer(button('left'), 'pointerup');
-    check('кнопка «влево» двигает фигуру', state().piece.x === xBefore - 1, `x ${xBefore}→${state().piece.x}`);
+    const holdBeforeButton = state().piece.type;
+    pressButton('hold');
+    check('кнопка замены запоминает фигуру', state().hold === holdBeforeButton, `hold=${state().hold}`);
+    const afterHoldButton = state().piece.type;
+    pressButton('hold');
+    check('повторная замена в сбросе игнорируется', state().piece.type === afterHoldButton, `фигура=${state().piece.type}`);
 
-    pointer(button('right'), 'pointerdown');
-    ticks(2);
-    pointer(button('right'), 'pointerup');
-    check('кнопка «вправо» возвращает фигуру', state().piece.x === xBefore, `x=${state().piece.x}`);
-
-    const rotationBefore = state().piece.rotation;
-    if (state().piece.type !== 'O') {
-      pointer(button('cw'), 'pointerdown');
-      ticks(2);
-      pointer(button('cw'), 'pointerup');
-      check('кнопка поворота вращает фигуру', state().piece.rotation === (rotationBefore + 1) % 4,
-        `r ${rotationBefore}→${state().piece.rotation}`);
-    }
-
-    const blocksPre = state().board.flat().filter(Boolean).length;
-    pointer(button('hard'), 'pointerdown');
-    ticks(2);
-    pointer(button('hard'), 'pointerup');
-    check('кнопка сброса фиксирует фигуру', state().board.flat().filter(Boolean).length > blocksPre,
-      `блоков ${blocksPre}→${state().board.flat().filter(Boolean).length}`);
-
-    const holdTypeBefore = state().piece.type;
-    pointer(button('hold'), 'pointerdown');
-    ticks(3);
-    pointer(button('hold'), 'pointerup');
-    check('кнопка hold запоминает фигуру', state().hold === holdTypeBefore, `hold=${state().hold}`);
-
-    pointer(button('pause'), 'pointerdown');
-    ticks(2);
-    pointer(button('pause'), 'pointerup');
+    pressButton('pause');
     check('кнопка паузы ставит паузу', state().phase === 'paused', state().phase);
-    pointer(button('pause'), 'pointerdown');
-    ticks(2);
-    pointer(button('pause'), 'pointerup');
+    check('на паузе есть кнопка новой игры', !$('ovSecondary').hidden, 'кнопка скрыта');
+    pressButton('pause');
     check('кнопка паузы снимает паузу', state().phase === 'playing', state().phase);
 
-    pointer(button('restart'), 'pointerdown');
-    ticks(2);
-    pointer(button('restart'), 'pointerup');
-    check('кнопка рестарта начинает заново', state().phase === 'playing' && state().score === 0,
+    // «ЗАНОВО» на экране паузы
+    pressButton('pause');
+    $('ovSecondary').click();
+    ticks(3);
+    check('кнопка «Заново» на паузе начинает новую игру',
+      state().phase === 'playing' && state().score === 0,
       `фаза=${state().phase}, счёт=${state().score}`);
 
     /* ── 11. Управление пальцем: свайпы по полю ────────────────────── */
@@ -392,16 +400,43 @@
     ticks(2);
     check('свайп влево двигает фигуру', state().piece.x < swipeStartX, `x ${swipeStartX}→${state().piece.x}`);
 
-    const blocksSwipe = state().board.flat().filter(Boolean).length;
-    pointer($('board'), 'pointerdown', { x: midX, y: midY - 120, id: 12 });
-    pointer($('board'), 'pointerup', { x: midX, y: midY + 40, id: 12 });
+    // вниз — быстрое падение, а не сброс: фигура опускается, но остаётся в воздухе
+    game.start();
     ticks(3);
-    check('свайп вниз сбрасывает фигуру', state().board.flat().filter(Boolean).length > blocksSwipe,
-      `блоков ${blocksSwipe}→${state().board.flat().filter(Boolean).length}`);
+    const blocksDown = state().board.flat().filter(Boolean).length;
+    const yDown = state().piece.y;
+    pointer($('board'), 'pointerdown', { x: midX, y: midY - 60, id: 12 });
+    pointer($('board'), 'pointermove', { x: midX, y: midY + 40, id: 12 });
+    pointer($('board'), 'pointerup', { x: midX, y: midY + 40, id: 12 });
+    ticks(2);
+    check('движение вниз ускоряет падение',
+      state().piece && state().piece.y > yDown, `y ${yDown}→${state().piece && state().piece.y}`);
+    check('движение вниз не фиксирует фигуру',
+      state().board.flat().filter(Boolean).length === blocksDown,
+      `блоков ${blocksDown}→${state().board.flat().filter(Boolean).length}`);
+
+    // вверх — сброс фигуры
+    const blocksUp = state().board.flat().filter(Boolean).length;
+    pointer($('board'), 'pointerdown', { x: midX, y: midY + 80, id: 13 });
+    pointer($('board'), 'pointerup', { x: midX, y: midY - 40, id: 13 });
+    ticks(3);
+    check('свайп вверх сбрасывает фигуру',
+      state().board.flat().filter(Boolean).length > blocksUp,
+      `блоков ${blocksUp}→${state().board.flat().filter(Boolean).length}`);
+
+    // вверх не заменяет фигуру — замена только кнопкой
+    const holdBeforeSwipe = state().hold;
+    const typeBeforeSwipe = state().piece.type;
+    pointer($('board'), 'pointerdown', { x: midX, y: midY + 80, id: 14 });
+    pointer($('board'), 'pointerup', { x: midX, y: midY - 40, id: 14 });
+    ticks(3);
+    check('свайп вверх не трогает замену',
+      state().hold === holdBeforeSwipe && state().piece.type !== typeBeforeSwipe,
+      `hold=${state().hold}, новая фигура=${state().piece.type}`);
 
     const rotationSwipe = state().piece.rotation;
-    pointer($('board'), 'pointerdown', { x: midX, y: midY, id: 13 });
-    pointer($('board'), 'pointerup', { x: midX + 2, y: midY + 2, id: 13 });
+    pointer($('board'), 'pointerdown', { x: midX, y: midY, id: 15 });
+    pointer($('board'), 'pointerup', { x: midX + 2, y: midY + 2, id: 15 });
     ticks(2);
     check('тап по полю поворачивает фигуру',
       state().piece.type === 'O' || state().piece.rotation !== rotationSwipe,
@@ -442,7 +477,7 @@
     const phone = await measureFrame(390, 844);
     check('на телефоне поле занимает больше половины высоты', phone.boardHeightShare >= 70,
       `${phone.boardHeightShare}% высоты, ${phone.boardWidthShare}% ширины`);
-    check('на телефоне кнопки управления видны', phone.controlsVisible && phone.controlsButtons >= 6,
+    check('на телефоне кнопки управления видны', phone.controlsVisible && phone.controlsButtons === 2,
       `кнопок=${phone.controlsButtons}`);
     check('на телефоне нет прокрутки', phone.overflowX === 0 && phone.overflowY === 0,
       `overflow=${phone.overflowX}×${phone.overflowY}`);
@@ -484,7 +519,97 @@
     check('есть кнопка установки, скрытая по умолчанию',
       document.getElementById('ovInstall')?.hidden === true);
 
-    /* ── 14. destroy снимает обработчики ───────────────────────────── */
+    /* ── 14. Настройки ─────────────────────────────────────────────── */
+    const settingsPanel = $('settings');
+    const option = (id) => $(id);
+    const setOption = (id, value) => {
+      const input = option(id);
+      input.checked = value;
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    };
+
+    game.start();
+    ticks(2);
+    check('настройки по умолчанию включены',
+      state().settings.hold && state().settings.next && state().settings.speed,
+      JSON.stringify(state().settings));
+
+    pressButton('pause');
+    $('ovSettings').click();
+    check('экран настроек открывается', !settingsPanel.hidden);
+
+    // Замена фигуры
+    setOption('optHold', false);
+    check('без замены панель HOLD скрыта', $('holdBox').hidden);
+    check('без замены кнопка замены скрыта', document.querySelector('[data-act="hold"]').hidden);
+    check('настройка сохранилась в состоянии', state().settings.hold === false);
+
+    $('settingsDone').click();
+    ticks(2);
+    game.start();
+    ticks(2);
+    pressButton('hold');
+    check('без замены кнопка ничего не делает', state().hold === null, `hold=${state().hold}`);
+
+    $('ovSettings') && $('ovSettings').click();
+    setOption('optHold', true);
+    $('settingsDone').click();
+    ticks(2);
+    check('включение замены возвращает панель и кнопку',
+      !$('holdBox').hidden && !document.querySelector('[data-act="hold"]').hidden);
+
+    // Показ следующих фигур
+    $('ovSettings').click();
+    setOption('optNext', false);
+    check('без показа следующих панель NEXT скрыта', $('nextBox').hidden);
+    setOption('optNext', true);
+    check('включение показа возвращает панель NEXT', !$('nextBox').hidden);
+    $('settingsDone').click();
+    ticks(2);
+
+    // Ускорение темпа
+    $('ovSettings').click();
+    setOption('optSpeed', false);
+    $('settingsDone').click();
+    ticks(2);
+
+    game.start();
+    ticks(2);
+    for (let i = 0; i < 400 && state().level < 2 && state().phase !== 'over'; i++) {
+      for (let guard = 0; guard < 200 && state().phase === 'clearing'; guard++) tick();
+      const current = state();
+      if (current.phase !== 'playing' || !current.piece) continue;
+      const plan = planBest(current.board, current.piece.type);
+      if (plan) {
+        for (let guard = 0; guard < 6 && state().piece?.rotation !== plan.rotation; guard++) {
+          tap('ArrowUp');
+          ticks(1);
+        }
+        for (let guard = 0; guard < 14; guard++) {
+          const x = state().piece?.x;
+          if (x === undefined || x === plan.x) break;
+          tap(x < plan.x ? 'ArrowRight' : 'ArrowLeft');
+          ticks(1);
+        }
+      }
+      tap('Space');
+      ticks(12);
+    }
+    check('уровень вырос при выключенном ускорении', state().level >= 2, `уровень=${state().level}`);
+    check('без ускорения темп постоянный', state().gravityMs === 1000, `${state().gravityMs} мс`);
+
+    $('ovSettings').click();
+    setOption('optSpeed', true);
+    $('settingsDone').click();
+    ticks(2);
+    check('с ускорением темп растёт', state().gravityMs < 1000, `${state().gravityMs} мс`);
+
+    // вернуть настройки по умолчанию, чтобы не влиять на другие проверки
+    setOption('optHold', true);
+    setOption('optNext', true);
+    setOption('optSpeed', true);
+
+    /* ── 15. destroy снимает обработчики ───────────────────────────── */
     game.destroy();
     const phaseBefore = state().phase;
     tap('KeyP');
