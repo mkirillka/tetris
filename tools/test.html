@@ -514,8 +514,11 @@
     const swText = await swResponse.text();
     check('service worker доступен', swResponse.ok, `HTTP ${swResponse.status}`);
     check('service worker кеширует игру', /addAll/.test(swText) && /assets\/game\.js/.test(swText));
+    check('service worker обновляет страницу из сети', /mode === 'navigate'/.test(swText));
 
     check('страница регистрирует service worker', /serviceWorker\.register/.test(indexSource));
+    check('страница перезагружается после обновления service worker',
+      /controllerchange/.test(indexSource));
     check('есть кнопка установки, скрытая по умолчанию',
       document.getElementById('ovInstall')?.hidden === true);
 

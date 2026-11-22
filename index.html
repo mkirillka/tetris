@@ -108,6 +108,17 @@
 
   // Офлайн-режим: service worker требует http(s), на file:// его просто нет.
   if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
+    // Если страницу уже обслуживал старый service worker, после выхода новой
+    // версии перезагружаемся один раз — иначе первое открытие показало бы
+    // старую игру из кеша.
+    const hadController = Boolean(navigator.serviceWorker.controller);
+    let reloading = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (!hadController || reloading) return;
+      reloading = true;
+      location.reload();
+    });
+
     window.addEventListener('load', () => {
       navigator.serviceWorker.register('sw.js').catch(() => {
         /* без SW игра тоже работает — просто без офлайна */
